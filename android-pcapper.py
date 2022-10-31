@@ -1,19 +1,33 @@
 #!/usr/bin/env python
 import subprocess
 from subprocess import run, Popen
-import argparse
+import argparse, argcomplete
 import os
 from time import sleep
 from androguard.core.bytecodes import apk
 from androguard.core.bytecodes.axml import AXMLPrinter
 
+
 app_path = ""
 app_name = ""
+
+# TODO: fix argcomplete
+
+def avd_completer(**kwargs):
+    try:
+        p = run(["emulator", "-list-avds"], capture_output=True)
+        return p.stdout.decode("ascii").splitlines()
+    except subprocess.CalledProcessError as error:
+        print("Could not get avds for tab completion")
+        print(error.output)
+        exit()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="python android-pcapper.py")
     parser.add_argument("app", help=".apk file or package name")
-    parser.add_argument("-avd", help="Android Virtual Device Name to launch")
+    parser.add_argument("-avd", help="Android Virtual Device Name to launch", nargs='?', default="Pixel_3_API_28").completer = avd_completer
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     if args.avd is None:
@@ -29,7 +43,7 @@ if __name__ == "__main__":
             print("Could not download " + args.app)
             print(error.output)
             exit()
-        # Dwonloaded
+        # Downloaded
         app_path = args.app + '.apk'
         app_name = args.app
     else:
@@ -38,17 +52,18 @@ if __name__ == "__main__":
         app_name = apk.APK(app_path).package  # os.path.splitext(args.app)[0]
 
     # Check if App is patched already
+    user_cert_trusted = False
     apk_file = apk.APK(app_path)
     manifest = apk_file.get_android_manifest_xml()
     if 'res/xml/network_security_config.xml' in apk_file.files.keys():
         print("Network Security Config present in .apk")
-    axml = AXMLPrinter(apk_file.get_file('res/xml/network_security_config.xml'))
-    axml_obj = axml.get_xml_obj()
-    for element in axml_obj.iter("certificates"):
-        if element.values() == ['user']:
-            print("User certificates trusted by network security configuration")
-            user_cert_trusted = True
-            break
+        axml = AXMLPrinter(apk_file.get_file('res/xml/network_security_config.xml'))
+        axml_obj = axml.get_xml_obj()
+        for element in axml_obj.iter("certificates"):
+            if element.values() == ['user']:
+                print("User certificates trusted by network security configuration")
+                user_cert_trusted = True
+                break
     if not user_cert_trusted:
         print("User certificates not trusted by network security configuration.")
         print("Patching APK...")
@@ -104,7 +119,7 @@ if __name__ == "__main__":
     try:
         print("Launching PCAPDroid...")
         run(["adb", "shell", "am", "start", "-e", "action", "start", "-e", "pcap_dump_mode", "http_server", "-e",
-             "http_server_port", "5123", "-e", "app_filter", app_name, "-n",
+             "http_server_port", "8080", "-e", "app_filter", app_name, "-n",
              "com.emanuelef.remote_capture.debug/com.emanuelef.remote_capture.activities.CaptureCtrl"])
     except subprocess.CalledProcessError as error:
         print("Could not launch emulator")
@@ -113,22 +128,24 @@ if __name__ == "__main__":
 
     # Enable Port Forwarding
     try:
-        p = run(["adb", "forward", "tcp:5123", "tcp:5123"], capture_output=True)
+        p = run(["adb", "forward", "tcp:8080", "tcp:8080"], capture_output=True)
     except subprocess.CalledProcessError as error:
         print("Could not enable Port Forwarding")
         print(error.output)
         exit()
 
     # Start Wireshark
-    try:
-        print("Starting Wireshark")
-        # curl -NLs http://192.168.1.10:8080 | wireshark -k -i -
-        p1 = run(["curl", "-NLs", "http://127.0.0.1:5123"])
-        p2 = run(["wireshark", "-k", "-i", "-"])
-    except subprocess.CalledProcessError as error:
-        print("Could not launch Wireshark")
-        print(error.output)
-        exit()
+    # sleep(10)
+    # try:
+    #     print("Starting Wireshark")
+    #     # curl -NLs http://192.168.1.10:8080 | wireshark -k -i -
+    #     # curl -NLs http://127.0.0.1:8080 | wireshark -k -i -
+    #     p1 = run(["curl", "-NLs", "http://127.0.0.1:5123"])
+    #     p2 = run(["wireshark", "-k", "-i", "-"])
+    # except subprocess.CalledProcessError as error:
+    #     print("Could not launch Wireshark")
+    #     print(error.output)
+    #     exit()
 
     # sleep(5)
     # # Start App
